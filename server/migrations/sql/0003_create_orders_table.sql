@@ -1,0 +1,15 @@
+-- Create orders table
+CREATE TABLE IF NOT EXISTS orders (
+  id VARCHAR(255) PRIMARY KEY NOT NULL,
+  product_id VARCHAR(255) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  seller_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  buyer_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  quantity INTEGER NOT NULL,
+  unit_price NUMERIC(10,2) NOT NULL,
+  discount_percent INTEGER DEFAULT 0 NOT NULL,
+  total_price NUMERIC(10,2) NOT NULL,
+  status VARCHAR(50) DEFAULT 'pending' NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+);

@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1765475375321,
+      "tag": "0000_motionless_boomer",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1735050000000,
+      "tag": "0001_update_user_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1735055000000,
+      "tag": "0002_create_products_table",
+      "breakpoints": true
+    }
+  ]
+}
