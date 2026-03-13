@@ -1,39 +1,72 @@
 /**
- * Payments Controller - eSewa Payment Gateway Integration
+ * Payments Controller - Khalti Payment Gateway Integration
  *
  * Handles:
- * 1. eSewa payment hash generation (for redirecting to eSewa)
- * 2. eSewa payment verification (after user completes payment)
- * 3. Payment status tracking
+ * 1. Khalti payment initiation (returns hosted checkout URL)
+ * 2. Khalti payment verification via lookup API
+ * 3. Payment status tracking from local orders table
  */
 
-const crypto = require("crypto");
 const { db } = require("../config/db");
 const { orders } = require("../models/orders");
+const { products } = require("../models/products");
 const { eq } = require("drizzle-orm");
 
-// eSewa Configuration
-const ESEWA_CONFIG = {
+const DEFAULT_CLIENT_URL = "http://localhost:5173";
+
+const KHALTI_CONFIG = {
   mode: process.env.NODE_ENV === "production" ? "PRODUCTION" : "TEST",
-  testUrl: "https://uat.esewa.com.np/epay/main",
-  productionUrl: "https://esewa.com.np/epay/main",
-  merchantCode: process.env.ESEWA_MERCHANT_CODE || "TESTMERCHANT",
-  secretKey: process.env.ESEWA_SECRET_KEY || "8gBm/:&EnhH.1/q",
+  testBaseUrl: "https://dev.khalti.com/api/v2",
+  productionBaseUrl: "https://khalti.com/api/v2",
+  secretKey:
+    process.env.KHALTI_SECRET_KEY ||
+    process.env.KHALTI_LIVE_SECRET_KEY ||
+    process.env.KHALTI_TEST_SECRET_KEY ||
+    "",
 };
 
-/**
- * Generate eSewa Payment Hash
- *
- * Flow:
- * 1. Calculate total amount
- * 2. Generate unique product code (order ID)
- * 3. Create string to hash: total_amount|product_code|merchant_code
- * 4. Generate HMAC-SHA256 hash using secret key
- * 5. Return hash and payment data to frontend
- */
-exports.generateEsewaHash = async (req, res) => {
+const getKhaltiBaseUrl = () =>
+  KHALTI_CONFIG.mode === "PRODUCTION"
+    ? KHALTI_CONFIG.productionBaseUrl
+    : KHALTI_CONFIG.testBaseUrl;
+
+const postToKhalti = async (path, payload) => {
+  if (!KHALTI_CONFIG.secretKey) {
+    const configError = new Error(
+      "Khalti is not configured. Set KHALTI_SECRET_KEY in server/.env",
+    );
+    configError.statusCode = 500;
+    throw configError;
+  }
+
+  const response = await fetch(`${getKhaltiBaseUrl()}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Key ${KHALTI_CONFIG.secretKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const errorMessage =
+      result?.detail ||
+      result?.message ||
+      result?.error_key ||
+      `Khalti API request failed with status ${response.status}`;
+    throw new Error(errorMessage);
+  }
+
+  return result;
+};
+
+// POST /api/payments/khalti/initiate
+exports.initiateKhaltiPayment = async (req, res) => {
   try {
     const { productId, quantity, discountPercent = 0, notes } = req.body;
+    const buyerId = req.user.userId;
 
     if (!productId || !quantity) {
       return res.status(400).json({
@@ -42,140 +75,239 @@ exports.generateEsewaHash = async (req, res) => {
       });
     }
 
-    // For demo: calculate directly
-    // In real scenario, fetch product from DB like in createOrder
-    const productCode = `${productId}-${Date.now()}`;
-
-    // Example calculation (in production, fetch actual product price)
-    const unitPrice = 1000; // Example: Rs. 1000
     const qty = parseInt(quantity, 10);
     const discount = parseInt(discountPercent, 10) || 0;
+    if (Number.isNaN(qty) || qty <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Quantity must be a positive number",
+      });
+    }
 
-    const amount = (unitPrice * qty * (1 - discount / 100)).toFixed(2);
-    const serviceCost = 0; // Your service charges
-    const deliveryCharge = 0; // Your delivery charges
-    const totalAmount = (
-      parseFloat(amount) +
-      serviceCost +
-      deliveryCharge
-    ).toFixed(2);
+    const [product] = await db
+      .select({
+        id: products.id,
+        sellerId: products.sellerId,
+        cropName: products.cropName,
+        quantity: products.quantity,
+        minPriceExpected: products.minPriceExpected,
+        currentPrice: products.currentPrice,
+        isAvailable: products.isAvailable,
+      })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
 
-    // Create hash string in required format: total_amount|product_code|merchant_code
-    const hashString = `${totalAmount}|${productCode}|${ESEWA_CONFIG.merchantCode}`;
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
 
-    // Generate HMAC-SHA256
-    const hash = crypto
-      .createHmac("sha256", ESEWA_CONFIG.secretKey)
-      .update(hashString)
-      .digest("base64");
+    if (!product.isAvailable || product.quantity <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Product not available",
+      });
+    }
 
-    const esewaUrl =
-      ESEWA_CONFIG.mode === "PRODUCTION"
-        ? ESEWA_CONFIG.productionUrl
-        : ESEWA_CONFIG.testUrl;
+    if (qty > product.quantity) {
+      return res.status(400).json({
+        success: false,
+        message: "Requested quantity exceeds available stock",
+      });
+    }
 
-    const successUrl = `${process.env.CLIENT_URL || "http://localhost:5173"}/payment/success`;
-    const failureUrl = `${process.env.CLIENT_URL || "http://localhost:5173"}/payment/failure`;
+    const unitPrice = Number(product.currentPrice || product.minPriceExpected);
+    const gross = unitPrice * qty;
+    const totalAmountRupees = +(gross * (1 - discount / 100)).toFixed(2);
+    const totalAmountPaisa = Math.round(totalAmountRupees * 100);
+
+    if (totalAmountPaisa < 1000) {
+      return res.status(400).json({
+        success: false,
+        message: "Khalti minimum payable amount is Rs. 10",
+      });
+    }
+
+    const productNameSlug = product.cropName.toLowerCase().replace(/\s+/g, "-");
+    const orderId = `${productNameSlug}-${Math.floor(Math.random() * 10000)}`;
+
+    const clientUrl = process.env.CLIENT_URL || DEFAULT_CLIENT_URL;
+    const websiteUrl = process.env.WEBSITE_URL || clientUrl;
+
+    const initiatePayload = {
+      return_url: `${clientUrl}/payment/success`,
+      website_url: websiteUrl,
+      amount: totalAmountPaisa,
+      purchase_order_id: orderId,
+      purchase_order_name: product.cropName,
+      customer_info: {
+        name: req.user.email || "Buyer",
+        email: req.user.email || "buyer@example.com",
+      },
+    };
+
+    const khaltiResponse = await postToKhalti(
+      "/epayment/initiate/",
+      initiatePayload,
+    );
+
+    const {
+      pidx,
+      payment_url: paymentUrl,
+      expires_at: expiresAt,
+      expires_in: expiresIn,
+    } = khaltiResponse;
+
+    if (!pidx || !paymentUrl) {
+      return res.status(500).json({
+        success: false,
+        message: "Khalti initiation response missing required fields",
+      });
+    }
+
+    await db.insert(orders).values({
+      id: orderId,
+      productId: product.id,
+      sellerId: product.sellerId,
+      buyerId,
+      quantity: qty,
+      unitPrice: unitPrice.toFixed(2),
+      discountPercent: discount,
+      totalPrice: totalAmountRupees.toFixed(2),
+      status: "pending",
+      paymentMethod: "khalti",
+      paymentCode: pidx,
+      paymentStatus: "pending",
+      notes: notes || null,
+    });
+
+    // Keep stock reservation behavior aligned with the existing checkout implementation.
+    await db
+      .update(products)
+      .set({
+        quantity: product.quantity - qty,
+        isAvailable: product.quantity - qty > 0,
+        updatedAt: new Date(),
+      })
+      .where(eq(products.id, product.id));
 
     res.json({
       success: true,
+      message: "Khalti payment initiated",
       data: {
-        hash,
-        esewaData: {
-          amount: parseFloat(amount),
-          serviceCost: parseFloat(serviceCost),
-          deliveryCharge: parseFloat(deliveryCharge),
-          totalAmount: parseFloat(totalAmount),
-          productCode, // Unique order identifier
-          merchantCode: ESEWA_CONFIG.merchantCode,
-          successUrl,
-          failureUrl,
-          url: esewaUrl,
+        khaltiData: {
+          pidx,
+          paymentUrl,
+          expiresAt,
+          expiresIn,
+          totalAmount: totalAmountRupees,
+          amount: totalAmountPaisa,
+          returnUrl: `${clientUrl}/payment/success`,
         },
       },
     });
   } catch (error) {
-    console.error("Generate hash error:", error);
-    res.status(500).json({
+    console.error("Khalti initiate error:", error);
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({
       success: false,
-      message: "Error generating payment hash",
+      message:
+        statusCode === 500 &&
+        typeof error.message === "string" &&
+        error.message.includes("Khalti is not configured")
+          ? error.message
+          : "Error initiating Khalti payment",
       error: error.message,
     });
   }
 };
 
-/**
- * Verify eSewa Payment
- *
- * Flow:
- * 1. User completes payment on eSewa
- * 2. eSewa redirects to success URL with transaction data
- * 3. Frontend calls this endpoint with transaction data
- * 4. Backend verifies hash with eSewa
- * 5. Update order with payment details
- */
-exports.verifyEsewaPayment = async (req, res) => {
+// POST /api/payments/khalti/verify
+exports.verifyKhaltiPayment = async (req, res) => {
   try {
-    const { oid, amt, refId, sid } = req.body;
+    const { pidx } = req.body;
 
-    if (!oid || !amt || !refId) {
+    if (!pidx) {
       return res.status(400).json({
         success: false,
-        message: "Missing required transaction data (oid, amt, refId)",
+        message: "pidx is required for payment verification",
       });
     }
 
-    // Find order by product code (oid = product code from hash generation)
     const [order] = await db
       .select()
       .from(orders)
-      .where(eq(orders.paymentCode, oid))
+      .where(eq(orders.paymentCode, pidx))
       .limit(1);
 
     if (!order) {
       return res.status(404).json({
         success: false,
-        message: "Order not found",
+        message: "Order not found for provided payment reference",
       });
     }
 
-    // Verify amount matches
-    if (parseFloat(amt) !== parseFloat(order.totalPrice)) {
+    if (order.paymentStatus === "completed") {
+      return res.json({
+        success: true,
+        message: "Payment already verified",
+        data: {
+          orderId: order.id,
+          totalPrice: Number(order.totalPrice),
+          paymentCode: order.paymentCode,
+          transactionId: order.transactionId || order.paymentCode,
+        },
+      });
+    }
+
+    const lookupResponse = await postToKhalti("/epayment/lookup/", { pidx });
+
+    if (lookupResponse.status !== "Completed") {
+      return res.status(400).json({
+        success: false,
+        message: `Payment not completed. Current status: ${lookupResponse.status}`,
+      });
+    }
+
+    const orderAmountPaisa = Math.round(Number(order.totalPrice) * 100);
+    const khaltiAmount = Number(lookupResponse.total_amount || 0);
+    if (khaltiAmount && khaltiAmount !== orderAmountPaisa) {
       return res.status(400).json({
         success: false,
         message: "Amount mismatch. Payment verification failed.",
       });
     }
 
-    // In production, you may want to verify with eSewa API
-    // For now, we trust the refId as proof of successful payment
+    const transactionId =
+      lookupResponse.transaction_id || lookupResponse.tidx || order.paymentCode;
 
-    // Update order with payment confirmation
-    const updatedOrder = await db
+    await db
       .update(orders)
       .set({
         paymentStatus: "completed",
-        transactionId: refId,
+        transactionId,
         updatedAt: new Date(),
       })
-      .where(eq(orders.id, oid))
-      .returning();
+      .where(eq(orders.id, order.id));
 
     res.json({
       success: true,
       message: "Payment verified successfully",
       data: {
         orderId: order.id,
-        totalPrice: order.totalPrice,
+        totalPrice: Number(order.totalPrice),
         paymentCode: order.paymentCode,
-        transactionId: refId,
+        transactionId,
       },
     });
   } catch (error) {
-    console.error("Verify payment error:", error);
+    console.error("Khalti verify error:", error);
     res.status(500).json({
       success: false,
-      message: "Error verifying payment",
+      message: "Error verifying Khalti payment",
       error: error.message,
     });
   }

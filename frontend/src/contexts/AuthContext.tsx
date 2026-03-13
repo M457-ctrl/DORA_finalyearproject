@@ -53,7 +53,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loading,
     login,
     logout,
-    isAuthenticated: !!user,
+    isAuthenticated: authService.isAuthenticated() && !!user,
     isAdmin: user?.role === "admin",
     isSubAdmin: user?.role === "subadmin",
     isBuyer: user?.role === "buyer",

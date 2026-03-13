@@ -1,15 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * Migration Script: Add Payment Fields to Orders Table
+ * Migration Script: Allow Khalti payment method in orders table
  *
- * Usage: node server/scripts/apply-migration-0002.js
- *
- * This script adds payment-related columns to the orders table:
- * - payment_method: 'cod' or 'esewa'
- * - payment_code: Payment reference/transaction code
- * - payment_status: 'pending', 'completed', 'failed'
- * - transaction_id: eSewa transaction ID
+ * Usage: node scripts/apply-migration-khalti.js
  */
 
 const pg = require("pg");
@@ -19,7 +13,6 @@ require("dotenv").config({ path: path.join(__dirname, "../.env") });
 
 function getSSLConfig() {
   const dbUrl = process.env.DATABASE_URL || "";
-
   if (!dbUrl) return false;
 
   try {
@@ -36,9 +29,7 @@ function getSSLConfig() {
       sslMode === "prefer" ||
       process.env.NODE_ENV === "production"
     ) {
-      return {
-        rejectUnauthorized: false,
-      };
+      return { rejectUnauthorized: false };
     }
   } catch {
     if (
@@ -49,10 +40,7 @@ function getSSLConfig() {
       dbUrl.includes("neon.tech") ||
       process.env.NODE_ENV === "production"
     ) {
-      return {
-        rejectUnauthorized: false,
-        require: true,
-      };
+      return { rejectUnauthorized: false, require: true };
     }
   }
 
@@ -90,33 +78,20 @@ const client = new pg.Client({
 
 async function applyMigration() {
   try {
-    console.log("🔄 Connecting to database...");
+    console.log("Connecting to database...");
     await client.connect();
 
-    console.log("📝 Applying migration: Add payment fields to orders table...");
-
-    // Read the SQL migration file
+    console.log("Applying migration: allow khalti payment method...");
     const sqlPath = path.join(
       __dirname,
-      "../migrations/sql/0002_add_payment_fields.sql",
+      "../migrations/sql/0005_allow_khalti_payment_method.sql",
     );
     const sql = fs.readFileSync(sqlPath, "utf-8");
-
-    // Execute the migration
     await client.query(sql);
 
-    console.log("✅ Migration applied successfully!");
-    console.log("\nNew columns added to orders table:");
-    console.log("  - payment_method (default: 'cod')");
-    console.log("  - payment_code (reference/transaction code)");
-    console.log("  - payment_status (default: 'pending')");
-    console.log("  - transaction_id (eSewa transaction ID)");
-    console.log("\nIndexes created for faster lookups:");
-    console.log("  - orders_payment_code_idx");
-    console.log("  - orders_transaction_id_idx");
-    console.log("  - orders_payment_status_idx");
+    console.log("Migration applied successfully.");
   } catch (error) {
-    console.error("❌ Migration failed:", error.message);
+    console.error("Migration failed:", error.message);
     process.exit(1);
   } finally {
     await client.end();

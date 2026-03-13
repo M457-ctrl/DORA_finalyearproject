@@ -2,7 +2,7 @@
  * Payment Success Page - Example Implementation
  * Location: frontend/src/pages/PaymentSuccess.tsx
  *
- * This page handles the success callback from eSewa payment gateway
+ * This page handles the success callback from Khalti payment gateway
  * User is redirected here after successful payment with transaction data
  */
 
@@ -30,25 +30,22 @@ const PaymentSuccess: React.FC = () => {
       try {
         setVerifying(true);
 
-        // Extract transaction data from URL query params
-        const oid = searchParams.get("oid"); // Order/Product ID
-        const amt = searchParams.get("amt"); // Amount
-        const refId = searchParams.get("refId"); // eSewa Transaction ID
-        const sid = searchParams.get("sid"); // Service ID
+        const pidx = searchParams.get("pidx");
+        const callbackStatus = searchParams.get("status");
 
-        if (!oid || !amt || !refId) {
+        if (callbackStatus && callbackStatus !== "Completed") {
+          setError(`Payment not completed. Current status: ${callbackStatus}`);
+          setLoading(false);
+          return;
+        }
+
+        if (!pidx) {
           setError("Invalid payment data. Missing transaction details.");
           setLoading(false);
           return;
         }
 
-        // Verify payment with backend
-        const response = await paymentsService.verifyEsewaPayment({
-          oid,
-          amt: parseFloat(amt),
-          refId,
-          sid: sid || "ESEWAPAY",
-        });
+        const response = await paymentsService.verifyKhaltiPayment(pidx);
 
         if (response.success && response.data) {
           setPaymentData(response.data);
@@ -94,7 +91,7 @@ const PaymentSuccess: React.FC = () => {
               <p className="text-sm text-gray-600">What you can do:</p>
               <ul className="text-sm text-gray-600 list-disc list-inside">
                 <li>Contact customer support with your transaction details</li>
-                <li>Check your eSewa account for transaction confirmation</li>
+                <li>Check your Khalti account for transaction confirmation</li>
                 <li>Retry payment from your orders page</li>
               </ul>
             </div>
@@ -181,10 +178,10 @@ const PaymentSuccess: React.FC = () => {
           {/* Action Buttons */}
           <div className="space-y-3">
             <button
-              onClick={() => navigate("/products/my-orders")}
+              onClick={() => navigate("/products")}
               className="w-full px-4 py-3 bg-green-600 text-white rounded hover:bg-green-700 font-semibold"
             >
-              View My Orders
+              Continue to Products
             </button>
 
             <button

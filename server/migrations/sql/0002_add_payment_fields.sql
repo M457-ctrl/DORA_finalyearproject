@@ -14,12 +14,30 @@ CREATE INDEX IF NOT EXISTS orders_transaction_id_idx ON orders(transaction_id);
 CREATE INDEX IF NOT EXISTS orders_payment_status_idx ON orders(payment_status);
 
 -- Add constraint to ensure payment_method is either 'cod' or 'esewa'
-ALTER TABLE orders ADD CONSTRAINT valid_payment_method 
-CHECK (payment_method IN ('cod', 'esewa'));
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM pg_constraint
+		WHERE conname = 'valid_payment_method'
+	) THEN
+		ALTER TABLE orders ADD CONSTRAINT valid_payment_method
+		CHECK (payment_method IN ('cod', 'esewa'));
+	END IF;
+END $$;
 
 -- Add constraint to ensure payment_status is valid
-ALTER TABLE orders ADD CONSTRAINT valid_payment_status 
-CHECK (payment_status IN ('pending', 'completed', 'failed'));
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM pg_constraint
+		WHERE conname = 'valid_payment_status'
+	) THEN
+		ALTER TABLE orders ADD CONSTRAINT valid_payment_status
+		CHECK (payment_status IN ('pending', 'completed', 'failed'));
+	END IF;
+END $$;
 
 -- Note: Run this migration using:
 -- NODE_ENV=production node server/scripts/migrate.js

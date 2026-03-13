@@ -2,6 +2,30 @@ import axios from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
 
+const decodeJwtPayload = (token: string): { exp?: number } | null => {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) {
+      return null;
+    }
+
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = atob(normalized);
+    return JSON.parse(decoded) as { exp?: number };
+  } catch {
+    return null;
+  }
+};
+
+const isTokenExpired = (token: string): boolean => {
+  const payload = decodeJwtPayload(token);
+  if (!payload?.exp) {
+    return true;
+  }
+
+  return payload.exp * 1000 <= Date.now();
+};
+
 export interface RegisterData {
   email: string;
   password: string;
@@ -86,11 +110,17 @@ export const authService = {
   },
 
   getCurrentUser(): User | null {
+    const token = this.getToken();
+    if (!token) {
+      return null;
+    }
+
     const userStr = localStorage.getItem("user");
     if (userStr) {
       try {
         return JSON.parse(userStr);
       } catch {
+        this.logout();
         return null;
       }
     }
@@ -98,7 +128,17 @@ export const authService = {
   },
 
   getToken(): string | null {
-    return localStorage.getItem("token");
+    const token = localStorage.getItem("token");
+    if (!token) {
+      return null;
+    }
+
+    if (isTokenExpired(token)) {
+      this.logout();
+      return null;
+    }
+
+    return token;
   },
 
   isAuthenticated(): boolean {

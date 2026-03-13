@@ -29,12 +29,12 @@ const orders = pgTable("orders", {
   // Payment Fields
   paymentMethod: varchar("payment_method", { length: 50 })
     .default("cod")
-    .notNull(), // "cod" or "esewa"
-  paymentCode: varchar("payment_code", { length: 255 }), // Generated code for COD or eSewa transaction ID
+    .notNull(), // "cod", "esewa", or "khalti"
+  paymentCode: varchar("payment_code", { length: 255 }), // Generated code for COD or provider payment ID
   paymentStatus: varchar("payment_status", { length: 50 })
     .default("pending")
     .notNull(), // "pending", "completed", "failed"
-  transactionId: varchar("transaction_id", { length: 255 }), // eSewa transaction ID
+  transactionId: varchar("transaction_id", { length: 255 }), // Provider transaction ID
 
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

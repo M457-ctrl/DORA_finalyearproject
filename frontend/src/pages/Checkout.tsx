@@ -6,7 +6,7 @@ import { ordersService } from "@/services/ordersService";
 import { paymentsService } from "@/services/paymentsService";
 import { CreditCard, Banknote } from "lucide-react";
 
-type PaymentMethod = "cod" | "esewa";
+type PaymentMethod = "cod" | "khalti";
 
 const Checkout: React.FC = () => {
   const { productId } = useParams();
@@ -17,7 +17,7 @@ const Checkout: React.FC = () => {
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
-  const [processingSewa, setProcessingSewa] = useState(false);
+  const [processingKhalti, setProcessingKhalti] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -74,8 +74,8 @@ const Checkout: React.FC = () => {
           setError(res?.message || "Failed to place order");
         }
       } else {
-        // eSewa payment flow
-        await initiateEsewaPayment();
+        // Khalti payment flow
+        await initiateKhaltiPayment();
       }
     } catch (e: unknown) {
       const errorMsg =
@@ -87,60 +87,46 @@ const Checkout: React.FC = () => {
     }
   };
 
-  const initiateEsewaPayment = async () => {
+  const initiateKhaltiPayment = async () => {
     try {
-      setProcessingSewa(true);
+      setProcessingKhalti(true);
 
-      // Step 1: Get eSewa payment hash from backend
-      const hashResponse = await paymentsService.generateEsewaHash(
+      if (!productId) {
+        setError("Invalid product selected for payment");
+        return;
+      }
+
+      // Step 1: Initiate Khalti payment and get redirect URL
+      const paymentResponse = await paymentsService.initiateKhaltiPayment(
         productId,
         quantity,
         discountPercent,
         notes,
       );
 
-      if (!hashResponse?.success) {
-        setError(hashResponse?.message || "Failed to generate payment hash");
+      if (!paymentResponse?.success) {
+        setError(
+          paymentResponse?.message || "Failed to initiate Khalti payment",
+        );
         return;
       }
 
-      const { hash, esewaData } = hashResponse.data;
+      const { khaltiData } = paymentResponse.data;
 
-      // Step 2: Create payment form dynamically and submit to eSewa
-      const form = document.createElement("form");
-      form.method = "POST";
-      form.action = esewaData.url; // eSewa payment URL (production or test)
+      if (!khaltiData?.paymentUrl) {
+        setError("Khalti payment URL not found");
+        return;
+      }
 
-      const fields = {
-        amt: esewaData.amount,
-        psc: esewaData.serviceCost,
-        pdc: esewaData.deliveryCharge,
-        txAmt: esewaData.totalAmount,
-        pid: esewaData.productCode,
-        scd: esewaData.merchantCode,
-        su: esewaData.successUrl,
-        fu: esewaData.failureUrl,
-        hm: hash,
-      };
-
-      Object.entries(fields).forEach(([key, value]) => {
-        const input = document.createElement("input");
-        input.type = "hidden";
-        input.name = key;
-        input.value = String(value);
-        form.appendChild(input);
-      });
-
-      document.body.appendChild(form);
-      form.submit();
-      document.body.removeChild(form);
+      // Step 2: Redirect user to Khalti hosted checkout page
+      window.location.href = khaltiData.paymentUrl;
     } catch (e: unknown) {
       const errorMsg =
         (e as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message || "Failed to initiate eSewa payment";
+          ?.message || "Failed to initiate Khalti payment";
       setError(errorMsg);
     } finally {
-      setProcessingSewa(false);
+      setProcessingKhalti(false);
     }
   };
 
@@ -301,21 +287,21 @@ const Checkout: React.FC = () => {
                     </div>
                   </label>
 
-                  {/* eSewa Payment Option */}
+                  {/* Khalti Payment Option */}
                   <label
                     className="flex items-start gap-3 p-3 border rounded cursor-pointer hover:bg-green-50"
                     style={{
                       borderColor:
-                        paymentMethod === "esewa" ? "#10b981" : "#d1d5db",
+                        paymentMethod === "khalti" ? "#10b981" : "#d1d5db",
                       backgroundColor:
-                        paymentMethod === "esewa" ? "#f0fdf4" : "transparent",
+                        paymentMethod === "khalti" ? "#f0fdf4" : "transparent",
                     }}
                   >
                     <input
                       type="radio"
                       name="payment"
-                      value="esewa"
-                      checked={paymentMethod === "esewa"}
+                      value="khalti"
+                      checked={paymentMethod === "khalti"}
                       onChange={(e) =>
                         setPaymentMethod(e.target.value as PaymentMethod)
                       }
@@ -324,14 +310,15 @@ const Checkout: React.FC = () => {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 font-semibold text-gray-800">
                         <CreditCard size={20} className="text-teal-600" />
-                        eSewa Payment Gateway
+                        Khalti Payment Gateway
                       </div>
                       <p className="text-sm text-gray-600 mt-1">
-                        Pay securely using eSewa wallet or bank transfer.
+                        Pay securely using Khalti wallet, cards, or mobile
+                        banking.
                       </p>
-                      {paymentMethod === "esewa" && (
+                      {paymentMethod === "khalti" && (
                         <div className="mt-2 text-xs bg-teal-50 border border-teal-200 rounded p-2 text-teal-700">
-                          ✓ You'll be redirected to eSewa for secure payment
+                          ✓ You'll be redirected to Khalti for secure payment
                         </div>
                       )}
                     </div>
@@ -357,21 +344,21 @@ const Checkout: React.FC = () => {
 
               <button
                 type="submit"
-                disabled={loading || processingSewa}
+                disabled={loading || processingKhalti}
                 className="w-full px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 font-semibold"
               >
                 {paymentMethod === "cod"
                   ? loading
                     ? "Placing Order..."
                     : "Place Order - Pay on Delivery"
-                  : processingSewa
-                    ? "Redirecting to eSewa..."
-                    : `Pay Rs. ${total.toFixed(2)} via eSewa`}
+                  : processingKhalti
+                    ? "Redirecting to Khalti..."
+                    : `Pay Rs. ${total.toFixed(2)} via Khalti`}
               </button>
 
-              {paymentMethod === "esewa" && (
+              {paymentMethod === "khalti" && (
                 <p className="text-xs text-gray-500 text-center">
-                  You will be securely redirected to eSewa after clicking the
+                  You will be securely redirected to Khalti after clicking the
                   button above
                 </p>
               )}

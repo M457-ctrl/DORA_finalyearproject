@@ -1,5 +1,4 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { MainLayout } from "@/components/layouts";
 import { Login, Register, ProtectedRoute } from "./components/auth";
 import SellerDashboard from "./pages/SellerDashboard";
 import SellerProducts from "./pages/SellerProducts";
@@ -10,6 +9,8 @@ import AdminDashboard from "./pages/AdminDashboard";
 import SubAdminDashboard from "./pages/SubAdminDashboard";
 import Home from "./pages/Home";
 import Checkout from "./pages/Checkout";
+import PaymentSuccess from "./pages/PaymentSuccess";
+import PaymentFailure from "./pages/PaymentFailure";
 
 const App = () => {
   return (
@@ -17,6 +18,8 @@ const App = () => {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/products" element={<Products />} />
+        <Route path="/payment/success" element={<PaymentSuccess />} />
+        <Route path="/payment/failure" element={<PaymentFailure />} />
         <Route
           path="/checkout/:productId"
           element={

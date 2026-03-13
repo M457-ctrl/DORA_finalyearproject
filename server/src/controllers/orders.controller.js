@@ -39,7 +39,7 @@ exports.createOrder = async (req, res) => {
     }
 
     // Validate payment method
-    if (!["cod", "esewa"].includes(paymentMethod)) {
+    if (!["cod", "esewa", "khalti"].includes(paymentMethod)) {
       return res
         .status(400)
         .json({ success: false, message: "Invalid payment method" });
@@ -89,9 +89,13 @@ exports.createOrder = async (req, res) => {
     // Generate payment code if not provided (for COD)
     const finalPaymentCode =
       paymentCode ||
-      (paymentMethod === "cod" ? `COD-${Date.now()}` : `ESEWA-${Date.now()}`);
+      (paymentMethod === "cod"
+        ? `COD-${Date.now()}`
+        : paymentMethod === "khalti"
+          ? `KHALTI-${Date.now()}`
+          : `ESEWA-${Date.now()}`);
 
-    // For COD, mark payment as pending. For eSewa, payment will be verified later
+    // For COD, mark payment as pending. For online methods, payment is verified later
     const paymentStatus = paymentMethod === "cod" ? "pending" : "pending";
 
     const [created] = await db

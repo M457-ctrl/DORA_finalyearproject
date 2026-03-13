@@ -2,7 +2,7 @@
  * Payment Failure Page - Example Implementation
  * Location: frontend/src/pages/PaymentFailure.tsx
  *
- * This page handles the failure callback from eSewa payment gateway
+ * This page handles the failure callback from Khalti payment gateway
  * User is redirected here if payment fails or is cancelled
  */
 
@@ -103,7 +103,7 @@ const PaymentFailure: React.FC = () => {
               Possible Reasons:
             </h3>
             <ul className="text-sm text-blue-800 space-y-2">
-              <li>• Insufficient balance in your eSewa account</li>
+              <li>• Insufficient balance in your Khalti account</li>
               <li>• Invalid payment information</li>
               <li>• Payment request timed out</li>
               <li>• You cancelled the payment</li>
@@ -129,10 +129,10 @@ const PaymentFailure: React.FC = () => {
             </button>
 
             <button
-              onClick={() => navigate("/help")}
+              onClick={() => navigate("/products")}
               className="w-full px-4 py-3 bg-blue-100 text-blue-800 rounded hover:bg-blue-200 font-semibold"
             >
-              Need Help? Contact Support
+              Back to Products
             </button>
           </div>
 
@@ -144,7 +144,7 @@ const PaymentFailure: React.FC = () => {
             <div className="text-sm text-gray-600 space-y-3">
               <div>
                 <p className="font-semibold text-gray-700">
-                  💳 Your eSewa account:
+                  💳 Your Khalti account:
                 </p>
                 <ul className="list-disc list-inside mt-1 text-gray-600">
                   <li>Check if your wallet has sufficient balance</li>
